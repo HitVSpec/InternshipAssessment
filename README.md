@@ -1,5 +1,5 @@
 # InternshipAssessment
-ESP32-Based Heater Control System
+ESP32-Based Heater Control System:
 This project implements a simple temperature-based heater control system using an NTC thermistor and an ESP32 microcontroller. The system simulates real-world thermal regulation by turning a heater ON or OFF based on temperature thresholds. It also provides live feedback through LED indicators and serial communication.
 
 Features:
