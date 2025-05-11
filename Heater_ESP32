@@ -1,0 +1,155 @@
+const int pinTemp = 34;
+const int pinHeater = 25;
+const int pinLEDOver = 2;
+const int pinLEDStatus = 26;
+
+const float T_TARGET = 60.0;
+const float T_LOW = 55.0;
+const float T_HIGH = 75.0;
+
+enum State {
+  OFF,
+  ON,
+  HOLD,
+  STABLE,
+  TOO_HOT
+};
+
+State state = OFF;
+
+unsigned long tLastCheck = 0;
+unsigned long tLastBlink = 0;
+unsigned long tOverStart = 0;
+bool ledBlink = false;
+
+const unsigned long T_CHECK = 200;
+const unsigned long T_OVER_DELAY = 3000;
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(pinHeater, OUTPUT);
+  pinMode(pinLEDOver, OUTPUT);
+  pinMode(pinLEDStatus, OUTPUT);
+  digitalWrite(pinHeater, LOW);
+  digitalWrite(pinLEDOver, LOW);
+  digitalWrite(pinLEDStatus, LOW);
+}
+
+void loop() {
+  unsigned long now = millis();
+
+  if (now - tLastCheck >= T_CHECK) {
+    tLastCheck = now;
+    float tC = readTemp();
+    updateState(tC);
+    logState(tC);
+  }
+
+  handleLED();
+}
+
+float readTemp() {
+  int raw = analogRead(pinTemp);
+  float v = raw * (3.3 / 4095.0);
+  float r = (v * 10000.0) / (3.3 - v);
+  float beta = 3950.0;
+  float tRoomK = 298.15;
+  float r0 = 10000.0;
+
+  float tK = 1.0 / (1.0 / tRoomK + (1.0 / beta) * log(r / r0));
+  return tK - 273.15;
+}
+
+void updateState(float tC) {
+  unsigned long now = millis();
+
+  switch (state) {
+    case OFF:
+      digitalWrite(pinHeater, LOW);
+      digitalWrite(pinLEDOver, LOW);
+      if (tC < T_LOW) {
+        state = ON;
+        digitalWrite(pinHeater, HIGH);
+      }
+      break;
+
+    case ON:
+      if (tC >= T_TARGET) {
+        state = HOLD;
+        digitalWrite(pinHeater, LOW);
+      }
+      break;
+
+    case HOLD:
+      if (tC >= T_HIGH) {
+        state = TOO_HOT;
+        tOverStart = now;
+        digitalWrite(pinHeater, LOW);
+      } else if (tC >= T_TARGET) {
+        state = STABLE;
+      }
+      break;
+
+    case STABLE:
+      if (tC >= T_HIGH) {
+        state = TOO_HOT;
+        tOverStart = now;
+        digitalWrite(pinHeater, LOW);
+      } else if (tC < T_LOW) {
+        state = ON;
+        digitalWrite(pinHeater, HIGH);
+      }
+      break;
+
+    case TOO_HOT:
+      digitalWrite(pinHeater, LOW);
+      digitalWrite(pinLEDOver, HIGH);
+      if (now - tOverStart > T_OVER_DELAY) {
+        digitalWrite(pinLEDOver, LOW);
+        state = OFF;
+      }
+      break;
+  }
+}
+
+void handleLED() {
+  unsigned long now = millis();
+
+  switch (state) {
+    case OFF:
+      digitalWrite(pinLEDStatus, LOW);
+      break;
+    case ON:
+      digitalWrite(pinLEDStatus, HIGH);
+      break;
+    case HOLD:
+      if (now - tLastBlink > 800) {
+        ledBlink = !ledBlink;
+        digitalWrite(pinLEDStatus, ledBlink);
+        tLastBlink = now;
+      }
+      break;
+    case STABLE:
+      if (now - tLastBlink > 300) {
+        ledBlink = !ledBlink;
+        digitalWrite(pinLEDStatus, ledBlink);
+        tLastBlink = now;
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+void logState(float tC) {
+  Serial.print("Temp: ");
+  Serial.print(tC);
+  Serial.print(" °C | State: ");
+  switch (state) {
+    case OFF: Serial.println("OFF"); break;
+    case ON: Serial.println("HEATING"); break;
+    case HOLD: Serial.println("STABILIZING"); break;
+    case STABLE: Serial.println("TARGET REACHED"); break;
+    case TOO_HOT: Serial.println("OVERHEAT"); break;
+  }
+}
